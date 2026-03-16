@@ -304,7 +304,7 @@ function EditorView({ roomId, userName, userColor, password, onLeave }: {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', padding: 10, gap: 10 }}>
         {viewMode !== 'preview' && (
-          <div style={{ ...panelStyle, flexDirection: 'column' }}>
+          <div className="editor-panel" style={{ ...panelStyle, flexDirection: 'column' }}>
             <Editor onMount={handleMount} onContentChange={setContent} fontSize={fontSize} comments={comments} />
             {/* Font size controls */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '6px 12px', borderTop: '1px solid rgba(0,0,0,0.06)', background: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>

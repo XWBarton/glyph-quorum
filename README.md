@@ -4,6 +4,8 @@
 
 Real-time collaborative Typst editor. Multiple people edit the same document simultaneously, see each other's cursors, leave comments, and compile to PDF — all in the browser.
 
+![Glyph Quorum screenshot](screenshot.png)
+
 ## Features
 
 - **Live collaboration** — shared editing powered by Y.js and Hocuspocus; see every collaborator's cursor in real time
@@ -64,6 +66,28 @@ PORT=8080 node dist/index.js
 ### Behind a reverse proxy or Cloudflare Tunnel
 
 No extra configuration needed. Point your tunnel or proxy at `localhost:3000` (or your custom port) and the client will automatically connect over `wss://` when served over HTTPS.
+
+## Keep running (PM2)
+
+To run the server persistently in the background and have it restart on reboot:
+
+```bash
+npm install -g pm2
+cd glyph-quorum/server
+PORT=3000 pm2 start dist/index.js --name glyph-quorum
+pm2 save
+pm2 startup
+```
+
+`pm2 startup` prints a `sudo env ...` command — copy and run it to register with systemd.
+
+Useful commands:
+
+```bash
+pm2 logs glyph-quorum      # tail logs
+pm2 restart glyph-quorum   # restart
+pm2 stop glyph-quorum      # stop
+```
 
 ## Update
 

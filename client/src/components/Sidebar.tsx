@@ -86,8 +86,7 @@ export function Sidebar({ comments, changes, users, ownName, ownColor, docId, ed
             key={t.id}
             onClick={() => setTab(t.id)}
             style={{
-              flex: 1,
-              padding: '10px 4px',
+              padding: '10px 10px',
               fontSize: 11,
               fontWeight: 600,
               letterSpacing: '0.02em',

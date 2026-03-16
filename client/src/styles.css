@@ -53,6 +53,13 @@ body::before {
   pointer-events: none;
 }
 
+/* Focus ring on the editor panel — uses :focus-within so it responds to
+   Monaco's hidden textarea gaining focus. box-shadow respects border-radius
+   unlike Monaco's own border which gets clipped at the rounded corners. */
+.editor-panel:focus-within {
+  box-shadow: 0 8px 32px rgba(0,40,120,0.08), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.95), 0 0 0 2px #2563eb;
+}
+
 /* Awareness cursor decorations */
 .yRemoteSelection {
   background-color: var(--presence-color, rgba(37,99,235,0.2));

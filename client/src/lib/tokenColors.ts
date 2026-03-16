@@ -153,6 +153,7 @@ const EDITOR_UI_COLORS = {
   'scrollbarSlider.background': '#00000018',
   'scrollbarSlider.hoverBackground': '#00000030',
   'scrollbarSlider.activeBackground': '#00000040',
+  'focusBorder': '#00000000',
 }
 
 export function buildMonacoTheme(
