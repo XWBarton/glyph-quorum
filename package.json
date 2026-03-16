@@ -1,0 +1,12 @@
+{
+  "name": "glyph-quorum",
+  "private": true,
+  "workspaces": ["server", "client"],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c blue,green \"npm -w server run dev\" \"npm -w client run dev\"",
+    "build": "npm -w client run build && npm -w server run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
