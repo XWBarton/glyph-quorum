@@ -30,7 +30,13 @@ export interface Change {
   origin: string    // 'local' | clientId
 }
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:3000'
+// In dev, use the env var (proxied to localhost:3000).
+// In production, connect back to whatever host served the page so it works
+// behind any reverse proxy or Cloudflare Tunnel with zero config.
+const WS_URL = import.meta.env.VITE_WS_URL ??
+  (import.meta.env.DEV
+    ? 'ws://localhost:3000'
+    : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`)
 
 export function useCollab(roomId: string, userName: string, userColor: string, password = '') {
   const [connected, setConnected] = useState(false)
