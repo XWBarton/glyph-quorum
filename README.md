@@ -118,3 +118,9 @@ npm run dev
 ```
 
 Runs the server on port 3000 and the Vite dev server on port 5173 (with HMR). Open `http://localhost:5173`.
+
+---
+
+Found this useful and want to help support maintenance?
+
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/xbarton)
