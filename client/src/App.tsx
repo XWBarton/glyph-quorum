@@ -249,7 +249,7 @@ const panelStyle: React.CSSProperties = {
 function EditorView({ roomId, userName, userColor, password, onLeave }: {
   roomId: string; userName: string; userColor: string; password: string; onLeave: () => void
 }) {
-  const { connected, users, comments, changes, bindEditor, addComment, resolveComment } = useCollab(roomId, userName, userColor, password)
+  const { connected, users, comments, changes, dictionary, trackChanges, setTrackChanges, spellCheckEnabled, setSpellCheckEnabled, bindEditor, addComment, resolveComment, acceptChange, rejectChange, addToDictionary } = useCollab(roomId, userName, userColor, password)
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
   const [content, setContent] = useState('')
   const [viewMode, setViewMode] = useState<'split' | 'editor' | 'preview'>('split')
@@ -300,12 +300,25 @@ function EditorView({ roomId, userName, userColor, password, onLeave }: {
         onDelete={handleDelete}
         viewMode={viewMode}
         onViewMode={setViewMode}
+        trackChanges={trackChanges}
+        onToggleTrackChanges={setTrackChanges}
+        spellCheckEnabled={spellCheckEnabled}
+        onToggleSpellCheck={setSpellCheckEnabled}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', padding: 10, gap: 10 }}>
         {viewMode !== 'preview' && (
           <div className="editor-panel" style={{ ...panelStyle, flexDirection: 'column' }}>
-            <Editor onMount={handleMount} onContentChange={setContent} fontSize={fontSize} comments={comments} />
+            <Editor
+              onMount={handleMount}
+              onContentChange={setContent}
+              fontSize={fontSize}
+              comments={comments}
+              changes={changes}
+              spellCheckEnabled={spellCheckEnabled}
+              dictionary={dictionary}
+              onAddToDictionary={addToDictionary}
+            />
             {/* Font size controls */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '6px 12px', borderTop: '1px solid rgba(0,0,0,0.06)', background: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>
               <FontSizeBtn onClick={() => setFontSize(s => Math.max(10, s - 1))}>−</FontSizeBtn>
@@ -330,6 +343,7 @@ function EditorView({ roomId, userName, userColor, password, onLeave }: {
         <Sidebar
           comments={comments}
           changes={changes}
+          trackChanges={trackChanges}
           users={users}
           ownName={userName}
           ownColor={userColor}
@@ -337,6 +351,8 @@ function EditorView({ roomId, userName, userColor, password, onLeave }: {
           editorRef={editorRef}
           onAddComment={addComment}
           onResolveComment={resolveComment}
+          onAcceptChange={acceptChange}
+          onRejectChange={rejectChange}
         />
       </div>
     </div>

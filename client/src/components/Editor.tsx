@@ -7,7 +7,8 @@ import { registerTypstLanguage, TYPST_LANGUAGE_ID } from '../lib/typstLanguage'
 import { buildMonacoTheme } from '../lib/tokenColors'
 import { filterCommands, type SlashCommand } from '../lib/slashCommands'
 import { SlashCommandPalette } from './SlashCommandPalette'
-import type { Comment } from '../hooks/useCollab'
+import type { Comment, Change } from '../hooks/useCollab'
+import { loadSpellChecker, findSpellIssues, registerSpellCodeActions, updateSpellController, type SpellChecker, type SpellIssue } from '../lib/spellcheck'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(self as any).MonacoEnvironment = { getWorker: () => new editorWorker() }
@@ -15,6 +16,9 @@ loader.config({ monaco })
 
 registerTypstLanguage(monaco)
 monaco.editor.defineTheme('quorum-typst', buildMonacoTheme({}))
+registerSpellCodeActions()
+
+const SPELL_CHECK_DEBOUNCE_MS = 500
 
 interface PaletteState {
   open: boolean
@@ -29,13 +33,25 @@ interface Props {
   onContentChange: (text: string) => void
   fontSize: number
   comments: Comment[]
+  changes: Change[]
+  spellCheckEnabled: boolean
+  dictionary: string[]
+  onAddToDictionary: (word: string) => void
 }
 
-export function Editor({ onMount: onMountProp, onContentChange, fontSize, comments }: Props) {
+export function Editor({ onMount: onMountProp, onContentChange, fontSize, comments, changes, spellCheckEnabled, dictionary, onAddToDictionary }: Props) {
   const editorRef      = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const containerRef   = useRef<HTMLDivElement>(null)
   const slashPosRef    = useRef<{ lineNumber: number; column: number } | null>(null)
   const decorationsRef = useRef<string[]>([])
+  const changeDecorationsRef = useRef<string[]>([])
+  const spellDecorationsRef = useRef<string[]>([])
+  const spellCheckerRef = useRef<SpellChecker | null>(null)
+  const spellEnabledRef = useRef(spellCheckEnabled)
+  const dictionarySetRef = useRef<Set<string>>(new Set())
+  const ignoredWordsRef = useRef<Set<string>>(new Set())
+  const spellTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [spellIssues, setSpellIssues] = useState<SpellIssue[]>([])
 
   const [palette, setPalette] = useState<PaletteState>({
     open: false, x: 0, y: 0, commands: [], selectedIndex: 0,
@@ -105,6 +121,50 @@ export function Editor({ onMount: onMountProp, onContentChange, fontSize, commen
     return () => el.removeEventListener('keydown', handler, { capture: true })
   }, [])
 
+  // Keep the refs the spellcheck pass reads in sync with the latest props,
+  // without re-running the (debounced) check on every render.
+  useEffect(() => { spellEnabledRef.current = spellCheckEnabled }, [spellCheckEnabled])
+  useEffect(() => { dictionarySetRef.current = new Set(dictionary.map(w => w.toLowerCase())) }, [dictionary])
+
+  const runSpellCheck = useCallback(() => {
+    const ed = editorRef.current
+    const spell = spellCheckerRef.current
+    if (!ed || !spell || !spellEnabledRef.current) { setSpellIssues([]); return }
+    const combined = new Set(dictionarySetRef.current)
+    for (const w of ignoredWordsRef.current) combined.add(w)
+    setSpellIssues(findSpellIssues(spell, ed.getValue(), combined))
+  }, [])
+
+  // Load the dictionary (lazily, once) whenever spellcheck is turned on, then check.
+  useEffect(() => {
+    if (!spellCheckEnabled) { setSpellIssues([]); return }
+    let cancelled = false
+    loadSpellChecker().then(spell => {
+      if (cancelled) return
+      spellCheckerRef.current = spell
+      runSpellCheck()
+    })
+    return () => { cancelled = true }
+  }, [spellCheckEnabled, runSpellCheck])
+
+  // Re-filter immediately when the shared dictionary changes (no need to
+  // wait for the next edit).
+  useEffect(() => { runSpellCheck() }, [dictionary, runSpellCheck])
+
+  // Feed the current issues + action callbacks to the (module-level, shared)
+  // quick-fix provider registered above.
+  useEffect(() => {
+    updateSpellController({
+      issues: spellIssues,
+      spell: spellCheckerRef.current,
+      onAddToDictionary,
+      onIgnoreWord: (word: string) => {
+        ignoredWordsRef.current.add(word.toLowerCase())
+        runSpellCheck()
+      },
+    })
+  }, [spellIssues, onAddToDictionary, runSpellCheck])
+
   const handleMount: OnMount = useCallback((ed) => {
     editorRef.current = ed
     monaco.editor.setTheme('quorum-typst')
@@ -113,6 +173,9 @@ export function Editor({ onMount: onMountProp, onContentChange, fontSize, commen
 
     ed.onDidChangeModelContent(() => {
       onContentChange(ed.getValue())
+
+      if (spellTimerRef.current) clearTimeout(spellTimerRef.current)
+      spellTimerRef.current = setTimeout(runSpellCheck, SPELL_CHECK_DEBOUNCE_MS)
 
       const pos = ed.getPosition()
       if (!pos) return
@@ -147,7 +210,7 @@ export function Editor({ onMount: onMountProp, onContentChange, fontSize, commen
       if (!slash) return
       if (e.position.lineNumber !== slash.lineNumber || e.position.column < slash.column) closePalette()
     })
-  }, [onMountProp, onContentChange, closePalette])
+  }, [onMountProp, onContentChange, closePalette, runSpellCheck])
 
   useEffect(() => { editorRef.current?.updateOptions({ fontSize }) }, [fontSize])
 
@@ -178,6 +241,84 @@ export function Editor({ onMount: onMountProp, onContentChange, fontSize, commen
     decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations)
   }, [comments])
 
+  // Render pending Track Changes suggestions inline: insertions get a tinted
+  // underline over the live text, deletions (already removed from the live
+  // text) get a struck-through "ghost" injected at the point they occurred —
+  // both purely visual, no effect on the underlying document.
+  useEffect(() => {
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    if (!ed || !model) return
+
+    let styleEl = document.getElementById('quorum-change-styles') as HTMLStyleElement | null
+    if (!styleEl) {
+      styleEl = document.createElement('style')
+      styleEl.id = 'quorum-change-styles'
+      document.head.appendChild(styleEl)
+    }
+    const pending = changes.filter(c => c.status === 'pending' && c.startOffset !== undefined && c.endOffset !== undefined)
+    styleEl.textContent = pending
+      .map(c => `.qch-${c.id} { ${c.kind === 'insert'
+        ? `background-color: ${c.authorColor}22; border-bottom: 2px solid ${c.authorColor};`
+        : `color: ${c.authorColor}; text-decoration: line-through; opacity: 0.7;`} }`)
+      .join('\n')
+
+    const textLen = model.getValueLength()
+    const newDecorations: monaco.editor.IModelDeltaDecoration[] = []
+    for (const c of pending) {
+      const start = Math.min(c.startOffset!, textLen)
+      const end = Math.min(c.endOffset!, textLen)
+      const pos = model.getPositionAt(start)
+      if (c.kind === 'insert' && end > start) {
+        const endPos = model.getPositionAt(end)
+        newDecorations.push({
+          range: new monaco.Range(pos.lineNumber, pos.column, endPos.lineNumber, endPos.column),
+          options: {
+            inlineClassName: `qch-${c.id}`,
+            hoverMessage: { value: `**${c.author}** suggested this insertion — review it in the Changes panel.` },
+          },
+        })
+      } else if (c.kind === 'delete' && c.text) {
+        newDecorations.push({
+          range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+          options: {
+            showIfCollapsed: true,
+            before: { content: c.text.slice(0, 200).replace(/\n/g, '↵'), inlineClassName: `qch-${c.id}` },
+            hoverMessage: { value: `**${c.author}** suggested deleting this — review it in the Changes panel.` },
+          },
+        })
+      }
+    }
+    changeDecorationsRef.current = ed.deltaDecorations(changeDecorationsRef.current, newDecorations)
+  }, [changes])
+
+  // Render a wavy underline under words the spellchecker doesn't recognize.
+  // Suggestions are computed eagerly here (bounded by the current issue
+  // count) so they're ready for both the hover tooltip and the right-click
+  // Quick Fix menu.
+  useEffect(() => {
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    if (!ed || !model) return
+
+    const lineCount = model.getLineCount()
+    const spell = spellCheckerRef.current
+    const newDecorations: monaco.editor.IModelDeltaDecoration[] = spellIssues
+      .filter(i => i.lineNumber <= lineCount)
+      .map(i => {
+        const suggestions = spell?.suggest(i.word).slice(0, 3) ?? []
+        const suggestionText = suggestions.length ? suggestions.map(s => `**${s}**`).join(', ') : '_no suggestions_'
+        return {
+          range: new monaco.Range(i.lineNumber, i.startColumn, i.lineNumber, i.endColumn),
+          options: {
+            inlineClassName: 'spell-error',
+            hoverMessage: { value: `Possibly misspelled — ${suggestionText}\n\nRight-click for Quick Fix.` },
+          },
+        }
+      })
+    spellDecorationsRef.current = ed.deltaDecorations(spellDecorationsRef.current, newDecorations)
+  }, [spellIssues])
+
   // Re-layout Monaco whenever the container is resized
   useEffect(() => {
     const el = containerRef.current
@@ -186,6 +327,8 @@ export function Editor({ onMount: onMountProp, onContentChange, fontSize, commen
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  useEffect(() => () => { if (spellTimerRef.current) clearTimeout(spellTimerRef.current) }, [])
 
   return (
     <div

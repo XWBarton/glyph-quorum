@@ -18,9 +18,13 @@ interface Props {
   onDelete: () => void
   viewMode: 'split' | 'editor' | 'preview'
   onViewMode: (m: 'split' | 'editor' | 'preview') => void
+  trackChanges: boolean
+  onToggleTrackChanges: (on: boolean) => void
+  spellCheckEnabled: boolean
+  onToggleSpellCheck: (on: boolean) => void
 }
 
-export function Toolbar({ roomId, roomPassword, connected, isCompiling, hasError, users, ownName, ownColor, pdfBytes, getSource, onLoadContent, onUploadAssets, onLeave, onDelete, viewMode, onViewMode }: Props) {
+export function Toolbar({ roomId, roomPassword, connected, isCompiling, hasError, users, ownName, ownColor, pdfBytes, getSource, onLoadContent, onUploadAssets, onLeave, onDelete, viewMode, onViewMode, trackChanges, onToggleTrackChanges, spellCheckEnabled, onToggleSpellCheck }: Props) {
   const [copied, setCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -142,6 +146,24 @@ export function Toolbar({ roomId, roomPassword, connected, isCompiling, hasError
 
       {/* ── Right: file actions + collaboration ──────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+        {/* Track Changes / Spell Check toggles */}
+        <ToggleSwitch
+          label="Track Changes"
+          on={trackChanges}
+          onChange={onToggleTrackChanges}
+          activeColor="var(--green)"
+          title={trackChanges ? 'Track Changes is on — edits are shown as suggestions to accept or reject' : 'Turn on Track Changes to mark edits as suggestions'}
+        />
+        <ToggleSwitch
+          label="Spell Check"
+          on={spellCheckEnabled}
+          onChange={onToggleSpellCheck}
+          activeColor="var(--accent)"
+          title={spellCheckEnabled ? 'Spell Check is on — misspelled words are underlined' : 'Turn on Spell Check to underline misspelled words'}
+        />
+
+        <div style={{ width: 1, height: 18, background: 'rgba(0,0,0,0.1)' }} />
+
         {/* File actions */}
         <ToolBtn onClick={openFile} title="Open a .typ file or upload images">Open</ToolBtn>
         <ToolBtn onClick={downloadTyp} title="Download source (.typ)">.typ</ToolBtn>
@@ -179,6 +201,52 @@ export function Toolbar({ roomId, roomPassword, connected, isCompiling, hasError
         onChange={handleFileChange}
       />
     </div>
+  )
+}
+
+function ToggleSwitch({ label, on, onChange, activeColor, title }: {
+  label: string
+  on: boolean
+  onChange: (on: boolean) => void
+  activeColor: string
+  title?: string
+}) {
+  return (
+    <button
+      onClick={() => onChange(!on)}
+      title={title}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 12, fontWeight: on ? 600 : 400,
+        padding: '4px 11px',
+        borderRadius: 'var(--radius-sm)',
+        border: `1px solid ${on ? `color-mix(in srgb, ${activeColor} 40%, transparent)` : 'rgba(255,255,255,0.8)'}`,
+        background: on ? `color-mix(in srgb, ${activeColor} 14%, transparent)` : 'rgba(255,255,255,0.55)',
+        color: on ? activeColor : 'var(--text)',
+        cursor: 'pointer',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.9)',
+        transition: 'background .12s, border-color .12s',
+        letterSpacing: '-0.01em',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{
+        width: 26, height: 14, borderRadius: 8, flexShrink: 0,
+        background: on ? activeColor : 'rgba(0,0,0,0.15)',
+        position: 'relative',
+        transition: 'background .12s',
+      }}>
+        <span style={{
+          position: 'absolute', top: 2, left: on ? 13 : 2,
+          width: 10, height: 10, borderRadius: '50%',
+          background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+          transition: 'left .12s',
+        }} />
+      </span>
+      {label}
+    </button>
   )
 }
 
