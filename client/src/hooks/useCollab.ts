@@ -42,6 +42,7 @@ export interface Change {
 }
 
 const TRACK_CHANGES_KEY = 'quorum-track-changes'
+const SPELL_CHECK_KEY = 'quorum-spell-check'
 const MERGE_WINDOW_MS = 2000
 
 function relPos(yText: Y.Text, index: number) {
@@ -67,13 +68,16 @@ export function useCollab(roomId: string, userName: string, userColor: string, p
   const [users, setUsers] = useState<UserPresence[]>([])
   const [comments, setComments] = useState<Comment[]>([])
   const [changes, setChanges] = useState<Change[]>([])
+  const [dictionary, setDictionary] = useState<string[]>([])
   const [trackChanges, setTrackChanges] = useState(() => localStorage.getItem(TRACK_CHANGES_KEY) === '1')
+  const [spellCheckEnabled, setSpellCheckEnabled] = useState(() => localStorage.getItem(SPELL_CHECK_KEY) !== '0')
 
   const docRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<HocuspocusProvider | null>(null)
   const bindingRef = useRef<MonacoBinding | null>(null)
   const yCommentsRef = useRef<Y.Array<Comment> | null>(null)
   const yChangesRef = useRef<Y.Array<Change> | null>(null)
+  const yDictionaryRef = useRef<Y.Array<string> | null>(null)
   const trackChangesRef = useRef(trackChanges)
   const suppressTrackingRef = useRef(false)
 
@@ -81,6 +85,10 @@ export function useCollab(roomId: string, userName: string, userColor: string, p
     trackChangesRef.current = trackChanges
     localStorage.setItem(TRACK_CHANGES_KEY, trackChanges ? '1' : '0')
   }, [trackChanges])
+
+  useEffect(() => {
+    localStorage.setItem(SPELL_CHECK_KEY, spellCheckEnabled ? '1' : '0')
+  }, [spellCheckEnabled])
 
   useEffect(() => {
     const doc = new Y.Doc()
@@ -118,6 +126,13 @@ export function useCollab(roomId: string, userName: string, userColor: string, p
     yCommentsRef.current = yComments
     const syncComments = () => setComments(yComments.toArray())
     yComments.observe(syncComments)
+
+    // Custom spellcheck dictionary, shared so one collaborator's "add to
+    // dictionary" applies for everyone in the room.
+    const yDictionary = doc.getArray<string>('dictionary')
+    yDictionaryRef.current = yDictionary
+    const syncDictionary = () => setDictionary(yDictionary.toArray())
+    yDictionary.observe(syncDictionary)
 
     // Changes log (append-only, capped at 100). Re-synced whenever the log
     // changes OR the document text changes, since pending entries' positions
@@ -288,6 +303,7 @@ export function useCollab(roomId: string, userName: string, userColor: string, p
       awareness.off('update', updateUsers)
       yComments.unobserve(syncComments)
       yChanges.unobserve(syncChanges)
+      yDictionary.unobserve(syncDictionary)
       bindingRef.current?.destroy()
       bindingRef.current = null
       provider.destroy()
@@ -338,6 +354,14 @@ export function useCollab(roomId: string, userName: string, userColor: string, p
     })
   }, [])
 
+  const addToDictionary = useCallback((word: string) => {
+    const arr = yDictionaryRef.current
+    if (!arr) return
+    const normalized = word.toLowerCase()
+    if (arr.toArray().includes(normalized)) return
+    arr.push([normalized])
+  }, [])
+
   /** Finalize a pending suggestion: the edit already happened, so just mark it resolved. */
   const acceptChange = useCallback((id: string) => {
     const doc = docRef.current
@@ -383,12 +407,16 @@ export function useCollab(roomId: string, userName: string, userColor: string, p
     users,
     comments,
     changes,
+    dictionary,
     trackChanges,
     setTrackChanges,
+    spellCheckEnabled,
+    setSpellCheckEnabled,
     bindEditor,
     addComment,
     resolveComment,
     acceptChange,
     rejectChange,
+    addToDictionary,
   }
 }
