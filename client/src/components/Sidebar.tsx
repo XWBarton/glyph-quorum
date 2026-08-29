@@ -11,6 +11,7 @@ type Tab = 'comments' | 'changes' | 'assets' | 'users'
 interface Props {
   comments: Comment[]
   changes: Change[]
+  trackChanges: boolean
   users: UserPresence[]
   ownName: string
   ownColor: string
@@ -18,9 +19,11 @@ interface Props {
   editorRef: React.RefObject<MonacoEditor.IStandaloneCodeEditor | null>
   onAddComment: (c: Omit<Comment, 'id' | 'createdAt' | 'author' | 'authorColor'> & { text: string }) => void
   onResolveComment: (id: string) => void
+  onAcceptChange: (id: string) => void
+  onRejectChange: (id: string) => void
 }
 
-export function Sidebar({ comments, changes, users, ownName, ownColor, docId, editorRef, onAddComment, onResolveComment }: Props) {
+export function Sidebar({ comments, changes, trackChanges, users, ownName, ownColor, docId, editorRef, onAddComment, onResolveComment, onAcceptChange, onRejectChange }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<Tab>('comments')
   const [draft, setDraft] = useState('')
@@ -46,10 +49,21 @@ export function Sidebar({ comments, changes, users, ownName, ownColor, docId, ed
 
   const activeComments = comments.filter(c => !c.resolved)
   const resolvedComments = comments.filter(c => c.resolved)
+  const pendingChanges = changes.filter(c => c.status === 'pending')
+
+  const navigateToChange = (change: Change) => {
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    if (!ed || !model || change.startOffset === undefined) return
+    const pos = model.getPositionAt(change.startOffset)
+    ed.revealLineInCenter(pos.lineNumber)
+    ed.setPosition(pos)
+    ed.focus()
+  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'comments', label: activeComments.length ? `Comments (${activeComments.length})` : 'Comments' },
-    { id: 'changes',  label: 'Changes' },
+    { id: 'changes',  label: pendingChanges.length ? `Changes (${pendingChanges.length})` : 'Changes' },
     { id: 'assets',   label: 'Assets' },
     { id: 'users',    label: `Users (${users.length + 1})` },
   ]
@@ -60,6 +74,9 @@ export function Sidebar({ comments, changes, users, ownName, ownColor, docId, ed
         <button onClick={() => setCollapsed(false)} title="Expand sidebar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtext)', fontSize: 18, lineHeight: 1, padding: 4 }}>‹</button>
         {activeComments.length > 0 && (
           <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-soft)', borderRadius: 10, padding: '1px 5px' }}>{activeComments.length}</span>
+        )}
+        {pendingChanges.length > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'rgba(22,163,74,0.12)', borderRadius: 10, padding: '1px 5px' }}>{pendingChanges.length}</span>
         )}
       </div>
     )
@@ -198,7 +215,15 @@ export function Sidebar({ comments, changes, users, ownName, ownColor, docId, ed
           </>
         )}
 
-        {tab === 'changes' && <ChangesList changes={changes} />}
+        {tab === 'changes' && (
+          <ChangesList
+            changes={changes}
+            trackChanges={trackChanges}
+            onAccept={onAcceptChange}
+            onReject={onRejectChange}
+            onNavigate={navigateToChange}
+          />
+        )}
 
         {tab === 'assets' && (
           <>

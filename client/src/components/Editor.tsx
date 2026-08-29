@@ -7,7 +7,7 @@ import { registerTypstLanguage, TYPST_LANGUAGE_ID } from '../lib/typstLanguage'
 import { buildMonacoTheme } from '../lib/tokenColors'
 import { filterCommands, type SlashCommand } from '../lib/slashCommands'
 import { SlashCommandPalette } from './SlashCommandPalette'
-import type { Comment } from '../hooks/useCollab'
+import type { Comment, Change } from '../hooks/useCollab'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(self as any).MonacoEnvironment = { getWorker: () => new editorWorker() }
@@ -29,13 +29,15 @@ interface Props {
   onContentChange: (text: string) => void
   fontSize: number
   comments: Comment[]
+  changes: Change[]
 }
 
-export function Editor({ onMount: onMountProp, onContentChange, fontSize, comments }: Props) {
+export function Editor({ onMount: onMountProp, onContentChange, fontSize, comments, changes }: Props) {
   const editorRef      = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const containerRef   = useRef<HTMLDivElement>(null)
   const slashPosRef    = useRef<{ lineNumber: number; column: number } | null>(null)
   const decorationsRef = useRef<string[]>([])
+  const changeDecorationsRef = useRef<string[]>([])
 
   const [palette, setPalette] = useState<PaletteState>({
     open: false, x: 0, y: 0, commands: [], selectedIndex: 0,
@@ -177,6 +179,57 @@ export function Editor({ onMount: onMountProp, onContentChange, fontSize, commen
 
     decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations)
   }, [comments])
+
+  // Render pending Track Changes suggestions inline: insertions get a tinted
+  // underline over the live text, deletions (already removed from the live
+  // text) get a struck-through "ghost" injected at the point they occurred —
+  // both purely visual, no effect on the underlying document.
+  useEffect(() => {
+    const ed = editorRef.current
+    const model = ed?.getModel()
+    if (!ed || !model) return
+
+    let styleEl = document.getElementById('quorum-change-styles') as HTMLStyleElement | null
+    if (!styleEl) {
+      styleEl = document.createElement('style')
+      styleEl.id = 'quorum-change-styles'
+      document.head.appendChild(styleEl)
+    }
+    const pending = changes.filter(c => c.status === 'pending' && c.startOffset !== undefined && c.endOffset !== undefined)
+    styleEl.textContent = pending
+      .map(c => `.qch-${c.id} { ${c.kind === 'insert'
+        ? `background-color: ${c.authorColor}22; border-bottom: 2px solid ${c.authorColor};`
+        : `color: ${c.authorColor}; text-decoration: line-through; opacity: 0.7;`} }`)
+      .join('\n')
+
+    const textLen = model.getValueLength()
+    const newDecorations: monaco.editor.IModelDeltaDecoration[] = []
+    for (const c of pending) {
+      const start = Math.min(c.startOffset!, textLen)
+      const end = Math.min(c.endOffset!, textLen)
+      const pos = model.getPositionAt(start)
+      if (c.kind === 'insert' && end > start) {
+        const endPos = model.getPositionAt(end)
+        newDecorations.push({
+          range: new monaco.Range(pos.lineNumber, pos.column, endPos.lineNumber, endPos.column),
+          options: {
+            inlineClassName: `qch-${c.id}`,
+            hoverMessage: { value: `**${c.author}** suggested this insertion — review it in the Changes panel.` },
+          },
+        })
+      } else if (c.kind === 'delete' && c.text) {
+        newDecorations.push({
+          range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+          options: {
+            showIfCollapsed: true,
+            before: { content: c.text.slice(0, 200).replace(/\n/g, '↵'), inlineClassName: `qch-${c.id}` },
+            hoverMessage: { value: `**${c.author}** suggested deleting this — review it in the Changes panel.` },
+          },
+        })
+      }
+    }
+    changeDecorationsRef.current = ed.deltaDecorations(changeDecorationsRef.current, newDecorations)
+  }, [changes])
 
   // Re-layout Monaco whenever the container is resized
   useEffect(() => {
